@@ -1,0 +1,52 @@
+[tool.pytest.ini_options]
+pythonpath = [
+    "."
+]
+testpaths = [
+    "app/tests"
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+timeout = 5
+faulthandler_timeout = 10
+addopts = """
+    -v
+    --tb=short
+    --show-capture=no
+    --capture=tee-sys
+    --maxfail=999
+    --no-cov-on-fail
+    --disable-warnings
+    --log-cli-level=INFO
+"""
+log_cli = true
+log_cli_level = "ERROR"
+console_output_style = "count"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    "ignore::RuntimeWarning"
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "app/tests/*",
+    "app/__init__.py"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "pass",
+    "raise ImportError"
+]
+
+[tool.coverage.html]
+directory = "docs/coverage_html"
+
+[tool.coverage.xml]
+output = "docs/coverage.xml" 

@@ -1,0 +1,94 @@
+# Coverage and documentation
+docs/coverage_html/
+docs/coverage.xml
+docs/.coverage
+docs/coverage_badge.svg
+.coverage
+.coverage.*
+coverage.xml
+coverage_badge.svg
+
+# Logs
+*.log
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.so
+.Python
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+bin/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+*.egg
+
+# Testing and Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+coverage_badge.svg
+htmlcov/
+.tox/
+nosetests.xml
+coverage/
+docs/coverage_html/
+docs/coverage.xml
+docs/.coverage
+docs/coverage_badge.svg
+
+# Logs and Databases
+*.log
+logs/
+*.sqlite
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# OS
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+*.temp
+Desktop.ini
+$RECYCLE.BIN/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Jupyter Notebook
+.ipynb_checkpoints 
