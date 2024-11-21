@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     - WebSocket settings
     - Service configuration
     - Feature flags
+    - Kafka configuration
     
     Configuration is loaded from environment variables or .env file
     """
@@ -87,6 +88,20 @@ class Settings(BaseSettings):
         default=False,
         description="Enable additional debug metrics"
     )
+
+    # Kafka Configuration
+    KAFKA_BOOTSTRAP_SERVERS: str = Field(
+        default="trading-cluster-kafka-bootstrap.kafka:9092",
+        description="Kafka bootstrap servers"
+    )
+    KAFKA_ENABLED: bool = Field(
+        default=True,
+        description="Enable/disable Kafka message publishing"
+    )
+    KAFKA_TOPIC: str = Field(
+        default="coinbase.candles",
+        description="Kafka topic for publishing candle data"
+    )
     
     model_config = SettingsConfigDict(
         env_file='.env',
@@ -118,6 +133,18 @@ class Settings(BaseSettings):
         for product_id in v:
             if not product_id or '-' not in product_id:
                 raise ValueError(f"Invalid product ID format: {product_id}. Expected format: BASE-QUOTE (e.g., BTC-USD)")
+        return v
+    
+    @field_validator('KAFKA_TOPIC')
+    @classmethod
+    def validate_kafka_topic(cls, v):
+        """Ensure Kafka topic is properly formatted"""
+        if not v or not isinstance(v, str):
+            raise ValueError("Kafka topic must be a non-empty string")
+        if len(v) > 249:  # Kafka has a limit of 249 characters for topic names
+            raise ValueError("Kafka topic name too long (max 249 characters)")
+        if not all(c.isalnum() or c in ('-', '_', '.') for c in v):
+            raise ValueError("Kafka topic can only contain alphanumeric characters, '.', '-', and '_'")
         return v
     
     def model_post_init(self, *args, **kwargs):

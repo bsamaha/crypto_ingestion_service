@@ -12,9 +12,11 @@ spec:
       labels:
         app: coinbase-ws
     spec:
+      imagePullSecrets:
+      - name: regcred
       containers:
       - name: coinbase-ws
-        image: coinbase-websocket:latest
+        image: bsamaha/coinbase-data-ingestion-service:1.0.0
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000
@@ -35,8 +37,8 @@ spec:
           periodSeconds: 5
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
             memory: "256Mi"
-            cpu: "200m" 
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

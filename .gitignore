@@ -92,3 +92,8 @@ dmypy.json
 
 # Jupyter Notebook
 .ipynb_checkpoints 
+
+# Ignore secrets
+.env
+.secrets
+k8s/overlays/*/secrets.yaml

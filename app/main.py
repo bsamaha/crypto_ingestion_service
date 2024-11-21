@@ -64,8 +64,12 @@ async def main():
             loop.add_signal_handler(sig, signal_handler)
     
     try:
+        # Initialize Kafka producer
+        await ws_service.start()
+        
+        # Start WebSocket connection
         await asyncio.get_event_loop().run_in_executor(None, ws_service.connect_and_subscribe)
-    except (Exception, KeyboardInterrupt) as e:  # Handle both Exception and KeyboardInterrupt
+    except (Exception, KeyboardInterrupt) as e:
         if isinstance(e, KeyboardInterrupt):
             logger.info("Keyboard interrupt received")
         else:

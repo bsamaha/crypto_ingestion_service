@@ -65,7 +65,10 @@ def mock_settings() -> Settings:
         WS_MAX_SIZE=1048576,
         RECONNECT_DELAY=1,
         LOG_LEVEL=LogLevel.INFO,
-        METRICS_PORT=8000
+        METRICS_PORT=8000,
+        KAFKA_BOOTSTRAP_SERVERS="trading-cluster-kafka-bootstrap.kafka:9092",
+        KAFKA_ENABLED=True,
+        KAFKA_TOPIC="coinbase.candles"
     )
 
 @pytest.fixture
