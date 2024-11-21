@@ -45,20 +45,21 @@ setup_namespaces() {
 check_dependencies() {
     echo -e "${YELLOW}Checking dependencies...${NC}"
     
-    # Check for docker
-    if ! command -v docker &> /dev/null; then
-        echo -e "${RED}Docker not found. Installing...${NC}"
-        curl -fsSL https://get.docker.com | sh
-    fi
-    
-    # Check for kustomize
-    if ! command -v kustomize &> /dev/null; then
-        echo -e "${RED}Kustomize not found. Installing...${NC}"
+    # Check for kubectl kustomize first
+    if ! kubectl kustomize --help >/dev/null 2>&1; then
+        echo -e "${YELLOW}Installing kustomize via kubectl...${NC}"
+        # Download the latest release
         curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+        chmod +x kustomize
         sudo mv kustomize /usr/local/bin/
+        
+        # Verify installation
+        if ! command -v kustomize &> /dev/null; then
+            echo -e "${RED}Failed to install kustomize. Please install manually.${NC}"
+            exit 1
+        fi
     fi
 }
-
 check_first_time_deployment() {
     if ! kubectl get namespace $NAMESPACE >/dev/null 2>&1; then
         echo -e "${YELLOW}First time deployment detected - creating namespace${NC}"
@@ -163,8 +164,13 @@ verify_kafka() {
 deploy_app() {
     echo "Deploying application..."
     
-    # Apply kustomization
+    # Apply kustomization using kubectl
     kubectl apply -k k8s/overlays/dev -n $NAMESPACE
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Failed to apply kustomization${NC}"
+        exit 1
+    fi
     
     # Apply network policy
     kubectl apply -f k8s/base/network-policy.yaml -n $NAMESPACE
