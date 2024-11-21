@@ -45,6 +45,16 @@ setup_namespaces() {
 check_dependencies() {
     echo -e "${YELLOW}Checking dependencies...${NC}"
 
+    # Check for jq
+    if ! command -v jq &> /dev/null; then
+        echo -e "${YELLOW}Installing jq...${NC}"
+        sudo apt-get update && sudo apt-get install -y jq
+        if ! command -v jq &> /dev/null; then
+            echo -e "${RED}Failed to install jq. Please install manually.${NC}"
+            exit 1
+        fi
+    fi
+
     # Check Docker permissions
     if ! groups | grep -q docker; then
         echo -e "${YELLOW}Adding user to docker group...${NC}"
@@ -96,19 +106,29 @@ check_first_time_deployment() {
 setup_docker_credentials() {
     # Check for existing Docker config
     if [ -f ~/.docker/config.json ]; then
-        echo "Using existing Docker credentials"
-        return 0
+        # Extract credentials from docker config
+        DOCKER_USERNAME=$(jq -r '.auths["https://index.docker.io/v1/"].auth' ~/.docker/config.json | base64 -d | cut -d: -f1)
+        DOCKER_PASSWORD=$(jq -r '.auths["https://index.docker.io/v1/"].auth' ~/.docker/config.json | base64 -d | cut -d: -f2)
+        
+        if [ -n "$DOCKER_USERNAME" ] && [ -n "$DOCKER_PASSWORD" ]; then
+            echo "Using existing Docker credentials for user: $DOCKER_USERNAME"
+            export DOCKER_USERNAME
+            export DOCKER_PASSWORD
+            return 0
+        fi
     fi
     
-    if [ -z "$DOCKER_USERNAME" ] || [ -z "$DOCKER_PASSWORD" ]; then
-        echo -e "${YELLOW}Please enter Docker Hub credentials:${NC}"
-        read -p "Username: " DOCKER_USERNAME
-        read -s -p "Password: " DOCKER_PASSWORD
-        echo
-    fi
+    # Fall back to manual entry if credentials not found or invalid
+    echo -e "${YELLOW}Please enter Docker Hub credentials:${NC}"
+    read -p "Username: " DOCKER_USERNAME
+    read -s -p "Password: " DOCKER_PASSWORD
+    echo
     
     echo "Logging into Docker Hub..."
     echo "$DOCKER_PASSWORD" | $DOCKER_SUDO docker login -u "$DOCKER_USERNAME" --password-stdin
+    
+    export DOCKER_USERNAME
+    export DOCKER_PASSWORD
 }
 
 setup_docker_secret() {
