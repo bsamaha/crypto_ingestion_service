@@ -44,6 +44,17 @@ setup_namespaces() {
 
 check_dependencies() {
     echo -e "${YELLOW}Checking dependencies...${NC}"
+
+    # Check Docker permissions
+    if ! groups | grep -q docker; then
+        echo -e "${YELLOW}Adding user to docker group...${NC}"
+        sudo usermod -aG docker $USER
+        echo -e "${YELLOW}Please log out and back in for changes to take effect${NC}"
+        echo -e "${YELLOW}For now, running with sudo...${NC}"
+        export DOCKER_SUDO="sudo"
+    else
+        export DOCKER_SUDO=""
+    fi
     
     # Check for kubectl kustomize first
     if ! kubectl kustomize --help >/dev/null 2>&1; then
@@ -60,6 +71,8 @@ check_dependencies() {
         fi
     fi
 }
+
+
 check_first_time_deployment() {
     if ! kubectl get namespace $NAMESPACE >/dev/null 2>&1; then
         echo -e "${YELLOW}First time deployment detected - creating namespace${NC}"
@@ -81,6 +94,12 @@ check_first_time_deployment() {
 }
 
 setup_docker_credentials() {
+    # Check for existing Docker config
+    if [ -f ~/.docker/config.json ]; then
+        echo "Using existing Docker credentials"
+        return 0
+    fi
+    
     if [ -z "$DOCKER_USERNAME" ] || [ -z "$DOCKER_PASSWORD" ]; then
         echo -e "${YELLOW}Please enter Docker Hub credentials:${NC}"
         read -p "Username: " DOCKER_USERNAME
@@ -89,7 +108,7 @@ setup_docker_credentials() {
     fi
     
     echo "Logging into Docker Hub..."
-    echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+    echo "$DOCKER_PASSWORD" | $DOCKER_SUDO docker login -u "$DOCKER_USERNAME" --password-stdin
 }
 
 setup_docker_secret() {
