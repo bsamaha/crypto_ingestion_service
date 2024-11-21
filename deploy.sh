@@ -190,7 +190,8 @@ verify_kafka() {
             exit 1
         fi
     else
-        if ! kubectl wait --for=condition=ready pod -l app=kafka -n kafka --timeout=30s 2>/dev/null; then
+        # Check for Strimzi Kafka cluster pods
+        if ! kubectl wait --for=condition=ready pod -l strimzi.io/cluster=trading-cluster -n kafka --timeout=30s 2>/dev/null; then
             echo -e "${YELLOW}Warning: Kafka pods not ready${NC}"
             read -p "Continue without Kafka? (y/n) " CONTINUE
             if [[ $CONTINUE != "y" ]]; then
