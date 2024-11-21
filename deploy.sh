@@ -21,21 +21,56 @@ show_help() {
     echo "  -h, --help           Show this help message"
 }
 
+setup_namespaces() {
+    echo -e "${YELLOW}Setting up required namespaces...${NC}"
+    
+    # Array of required namespaces and their labels
+    declare -A namespaces=(
+        ["trading"]="trading"
+        ["kafka"]="kafka"
+        ["monitoring"]="monitoring"
+    )
+    
+    for ns in "${!namespaces[@]}"; do
+        if ! kubectl get namespace $ns >/dev/null 2>&1; then
+            echo "Creating namespace: $ns"
+            kubectl create namespace $ns
+        fi
+        
+        echo "Labeling namespace: $ns"
+        kubectl label namespace $ns name=${namespaces[$ns]} --overwrite
+    done
+}
+
+check_dependencies() {
+    echo -e "${YELLOW}Checking dependencies...${NC}"
+    
+    # Check for docker
+    if ! command -v docker &> /dev/null; then
+        echo -e "${RED}Docker not found. Installing...${NC}"
+        curl -fsSL https://get.docker.com | sh
+    fi
+    
+    # Check for kustomize
+    if ! command -v kustomize &> /dev/null; then
+        echo -e "${RED}Kustomize not found. Installing...${NC}"
+        curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+        sudo mv kustomize /usr/local/bin/
+    fi
+}
+
 check_first_time_deployment() {
-    # Check if namespace exists
     if ! kubectl get namespace $NAMESPACE >/dev/null 2>&1; then
         echo -e "${YELLOW}First time deployment detected - creating namespace${NC}"
         kubectl create namespace $NAMESPACE
         return 0
     fi
     
-    # Check if secrets exist
-    if ! kubectl get secret coinbase-secrets -n $NAMESPACE >/dev/null 2>&1; then
+    if ! kubectl get secret dev-coinbase-secrets -n $NAMESPACE >/dev/null 2>&1; then
         echo -e "${YELLOW}Secrets not found - setting up environment${NC}"
         return 0
     fi
     
-    # Check if regcred exists
     if ! kubectl get secret regcred -n $NAMESPACE >/dev/null 2>&1; then
         echo -e "${YELLOW}Docker credentials not found - setting up environment${NC}"
         return 0
@@ -68,11 +103,8 @@ setup_docker_secret() {
 build_env_file() {
     echo -e "${YELLOW}Checking for existing secrets...${NC}"
     
-    # Check if secrets exist
-    if kubectl get secret coinbase-secrets -n $NAMESPACE >/dev/null 2>&1; then
+    if kubectl get secret dev-coinbase-secrets -n $NAMESPACE >/dev/null 2>&1; then
         echo -e "${GREEN}Secrets already exist${NC}"
-        
-        # Prompt to update
         read -p "Do you want to update the secrets? (y/n) " UPDATE_SECRETS
         if [[ $UPDATE_SECRETS != "y" ]]; then
             return
@@ -81,7 +113,6 @@ build_env_file() {
     
     echo -e "${YELLOW}Setting up Coinbase API credentials${NC}"
     
-    # Prompt for required values with validation
     while true; do
         read -p "Coinbase API Key: " COINBASE_API_KEY
         if [[ -n "$COINBASE_API_KEY" ]]; then
@@ -99,62 +130,67 @@ build_env_file() {
         echo -e "${RED}API Secret cannot be empty${NC}"
     done
 
-    # Export variables for envsubst
     export COINBASE_API_KEY
     export COINBASE_API_SECRET
     
-    # Create secrets from template
     echo "Creating Kubernetes secrets..."
-    envsubst '${COINBASE_API_KEY} ${COINBASE_API_SECRET}' < k8s/overlays/dev/secrets.template.yaml | kubectl apply -n $NAMESPACE -f -
+    cp k8s/overlays/dev/secrets.template.yaml k8s/overlays/dev/secrets.yaml
+    envsubst '${COINBASE_API_KEY} ${COINBASE_API_SECRET}' < k8s/overlays/dev/secrets.template.yaml > k8s/overlays/dev/secrets.yaml
     
-    # Cleanup exported variables
     unset COINBASE_API_KEY
     unset COINBASE_API_SECRET
-    
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}Successfully created/updated secrets${NC}"
-    else
-        echo -e "${RED}Failed to create/update secrets${NC}"
-        exit 1
-    fi
 }
 
 verify_kafka() {
     echo "Verifying Kafka connectivity..."
     if ! kubectl get namespace kafka >/dev/null 2>&1; then
-        echo -e "${RED}Error: Kafka namespace not found${NC}"
-        exit 1
-    fi
-    
-    if ! kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kafka -n kafka --timeout=30s; then
-        echo -e "${RED}Error: Kafka pods not ready${NC}"
-        exit 1
+        echo -e "${YELLOW}Warning: Kafka namespace not found${NC}"
+        read -p "Continue without Kafka? (y/n) " CONTINUE
+        if [[ $CONTINUE != "y" ]]; then
+            exit 1
+        fi
+    else
+        if ! kubectl wait --for=condition=ready pod -l app=kafka -n kafka --timeout=30s 2>/dev/null; then
+            echo -e "${YELLOW}Warning: Kafka pods not ready${NC}"
+            read -p "Continue without Kafka? (y/n) " CONTINUE
+            if [[ $CONTINUE != "y" ]]; then
+                exit 1
+            fi
+        fi
     fi
 }
 
 deploy_app() {
     echo "Deploying application..."
-    # Replace image in deployment
-    kubectl set image deployment/coinbase-ws \
-        coinbase-ws=${IMAGE_NAME}:${IMAGE_TAG} \
-        -n ${NAMESPACE} || true
     
+    # Apply kustomization
+    kubectl apply -k k8s/overlays/dev -n $NAMESPACE
+    
+    # Apply network policy
     kubectl apply -f k8s/base/network-policy.yaml -n $NAMESPACE
-    kustomize build k8s/base | kubectl apply -n $NAMESPACE -f -
 }
 
 verify_deployment() {
     echo "Verifying deployment..."
     
-    if ! kubectl wait --for=condition=available deployment/coinbase-ws -n $NAMESPACE --timeout=60s; then
+    if ! kubectl wait --for=condition=available deployment/dev-coinbase-ws -n $NAMESPACE --timeout=60s; then
         echo -e "${RED}Error: Deployment not ready${NC}"
+        kubectl get pods -n $NAMESPACE
+        kubectl describe deployment dev-coinbase-ws -n $NAMESPACE
         exit 1
     fi
     
-    # Check pod health
     POD_NAME=$(kubectl get pods -n $NAMESPACE -l app=coinbase-ws -o jsonpath="{.items[0].metadata.name}")
-    if ! kubectl exec $POD_NAME -n $NAMESPACE -- curl -s http://localhost:8000/health; then
-        echo -e "${RED}Error: Health check failed${NC}"
+    if [ -n "$POD_NAME" ]; then
+        echo "Waiting for pod health check..."
+        sleep 10  # Give the health endpoint time to start
+        if ! kubectl exec $POD_NAME -n $NAMESPACE -- curl -s http://localhost:8000/health; then
+            echo -e "${RED}Error: Health check failed${NC}"
+            kubectl logs $POD_NAME -n $NAMESPACE
+            exit 1
+        fi
+    else
+        echo -e "${RED}Error: No pods found${NC}"
         exit 1
     fi
 }
@@ -182,30 +218,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-setup_namespaces() {
-    echo -e "${YELLOW}Setting up required namespaces...${NC}"
-    
-    # Array of required namespaces and their labels
-    declare -A namespaces=(
-        ["trading"]="trading"
-        ["kafka"]="kafka"
-        ["monitoring"]="monitoring"
-    )
-    
-    for ns in "${!namespaces[@]}"; do
-        if ! kubectl get namespace $ns >/dev/null 2>&1; then
-            echo "Creating namespace: $ns"
-            kubectl create namespace $ns
-        fi
-        
-        echo "Labeling namespace: $ns"
-        kubectl label namespace $ns name=${namespaces[$ns]} --overwrite
-    done
-}
-
 # Main execution
 echo "Namespace: $NAMESPACE"
 echo "Image tag: $IMAGE_TAG"
+
+# Check dependencies
+check_dependencies
 
 # Setup required namespaces
 setup_namespaces
