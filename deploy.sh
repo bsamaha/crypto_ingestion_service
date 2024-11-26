@@ -146,13 +146,8 @@ setup_docker_secret() {
 build_env_file() {
     echo -e "${YELLOW}Checking for existing secrets...${NC}"
     
-    if kubectl get secret coinbase-secrets -n $NAMESPACE >/dev/null 2>&1; then
-        echo -e "${GREEN}Secrets already exist${NC}"
-        read -p "Do you want to update the secrets? (y/n) " UPDATE_SECRETS
-        if [[ $UPDATE_SECRETS != "y" ]]; then
-            return 0
-        fi
-    fi
+    # Create secrets.yaml from template
+    cp k8s/base/secrets.template.yaml k8s/base/secrets.yaml
     
     # Prompt for Coinbase API credentials
     echo -e "${YELLOW}Please enter Coinbase API credentials:${NC}"
@@ -160,16 +155,16 @@ build_env_file() {
     read -s -p "API Secret: " COINBASE_API_SECRET
     echo
     
-    # Create secrets.yaml from template
-    cp k8s/overlays/dev/secrets.template.yaml k8s/overlays/dev/secrets.yaml
-    
-    # Update the secrets with the provided values using yq for better YAML handling
-    yq e ".stringData.COINBASE_API_KEY = \"$COINBASE_API_KEY\"" -i k8s/overlays/dev/secrets.yaml
-    yq e ".stringData.COINBASE_API_SECRET = \"$COINBASE_API_SECRET\"" -i k8s/overlays/dev/secrets.yaml
+    # Update the secrets with the provided values
+    sed -i "s|COINBASE_API_KEY: \"\"|COINBASE_API_KEY: \"$COINBASE_API_KEY\"|" k8s/base/secrets.yaml
+    sed -i "s|COINBASE_API_SECRET: \"\"|COINBASE_API_SECRET: \"$COINBASE_API_SECRET\"|" k8s/base/secrets.yaml
     
     echo -e "${GREEN}Secrets file created${NC}"
     
-    # Verify the secret was created properly
+    # Apply the secrets directly
+    kubectl apply -f k8s/base/secrets.yaml -n $NAMESPACE
+    
+    # Verify the secret exists
     if ! kubectl get secret coinbase-secrets -n $NAMESPACE >/dev/null 2>&1; then
         echo -e "${RED}Failed to create secret${NC}"
         exit 1
@@ -238,11 +233,11 @@ deploy_app() {
     echo "Deploying application..."
     
     # Update the image and tag in the kustomization file
-    sed -i "s|newName: .*|newName: ${REGISTRY_HOST}:${REGISTRY_PORT}/${IMAGE_NAME}|" k8s/overlays/dev/kustomization.yaml
-    sed -i "s|newTag: .*|newTag: ${IMAGE_TAG}|" k8s/overlays/dev/kustomization.yaml
+    sed -i "s|newName: .*|newName: ${REGISTRY_HOST}:${REGISTRY_PORT}/${IMAGE_NAME}|" k8s/base/kustomization.yaml
+    sed -i "s|newTag: .*|newTag: ${IMAGE_TAG}|" k8s/base/kustomization.yaml
     
     # Apply kustomization using kubectl
-    kubectl apply -k k8s/overlays/dev -n $NAMESPACE
+    kubectl apply -k k8s/base -n $NAMESPACE
     
     if [ $? -ne 0 ]; then
         echo -e "${RED}Failed to apply kustomization${NC}"
@@ -256,10 +251,10 @@ deploy_app() {
 verify_deployment() {
     echo "Verifying deployment..."
     
-    if ! kubectl wait --for=condition=available deployment/dev-coinbase-ws -n $NAMESPACE --timeout=60s; then
+    if ! kubectl wait --for=condition=available deployment/coinbase-ws -n $NAMESPACE --timeout=60s; then
         echo -e "${RED}Error: Deployment not ready${NC}"
         kubectl get pods -n $NAMESPACE
-        kubectl describe deployment dev-coinbase-ws -n $NAMESPACE
+        kubectl describe deployment coinbase-ws -n $NAMESPACE
         exit 1
     fi
     

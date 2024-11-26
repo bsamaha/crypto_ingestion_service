@@ -4,4 +4,10 @@ kind: Kustomization
 resources:
 - deployment.yaml
 - service.yaml
-- network-policy.yaml 
+- network-policy.yaml
+- secrets.yaml
+
+images:
+- name: coinbase-data-ingestion-service
+  newName: 192.168.1.221:5001/coinbase-data-ingestion-service
+  newTag: latest 
