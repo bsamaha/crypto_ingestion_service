@@ -242,18 +242,39 @@ verify_kafka() {
 configure_registry_access() {
     echo "Configuring registry access..."
     
-    # Create registry secret for pulling images
+    # Create registry secret for pulling images from local registry
     kubectl create secret docker-registry local-registry-cred \
-        --docker-server=https://${REGISTRY_HOST}:${REGISTRY_PORT} \
-        --docker-username=${DOCKER_USERNAME} \
-        --docker-password=${DOCKER_PASSWORD} \
+        --docker-server="https://${REGISTRY_HOST}:${REGISTRY_PORT}" \
+        --docker-username="" \
+        --docker-password="" \
+        --docker-email="noreply@local.registry" \
         --namespace=$NAMESPACE \
         --dry-run=client -o yaml | kubectl apply -f -
         
-    # Patch default service account to use the secret
+    # Add the certificate to the secret using k3s certificate path
+    local cert_data=$(cat /etc/rancher/k3s/certs/registry.crt | base64 -w 0)
+    kubectl create secret generic registry-cert \
+        --from-literal=ca.crt="$cert_data" \
+        --namespace=$NAMESPACE \
+        --dry-run=client -o yaml | kubectl apply -f -
+        
+    # Update the default service account to use local-registry-cred
     kubectl patch serviceaccount default \
         -p "{\"imagePullSecrets\": [{\"name\": \"local-registry-cred\"}]}" \
         -n $NAMESPACE
+}
+
+verify_registry_connection() {
+    echo -e "${YELLOW}Verifying registry connection...${NC}"
+    if ! curl --cacert /etc/rancher/k3s/certs/registry.crt -s "https://${REGISTRY_HOST}:${REGISTRY_PORT}/v2/_catalog" > /dev/null; then
+        echo -e "${RED}Cannot access registry at ${REGISTRY_HOST}:${REGISTRY_PORT}${NC}"
+        echo "Please ensure:"
+        echo "1. Registry container is running"
+        echo "2. Registry is accessible at ${REGISTRY_HOST}:${REGISTRY_PORT}"
+        echo "3. Certificates are properly configured"
+        exit 1
+    fi
+    echo -e "${GREEN}Registry connection successful${NC}"
 }
 
 deploy_app() {
@@ -300,6 +321,18 @@ verify_deployment() {
     fi
 }
 
+verify_certificate_access() {
+    echo -e "${YELLOW}Verifying registry certificate access...${NC}"
+    if [ ! -f "/etc/rancher/k3s/certs/registry.crt" ]; then
+        echo -e "${RED}Cannot access registry certificate at /etc/rancher/k3s/certs/registry.crt${NC}"
+        echo "Please ensure:"
+        echo "1. Certificate exists at the correct path"
+        echo "2. You have sufficient permissions to read the certificate"
+        exit 1
+    fi
+    echo -e "${GREEN}Registry certificate accessible${NC}"
+}
+
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -343,8 +376,14 @@ fi
 # Verify Kafka is available
 verify_kafka
 
+# Verify certificate access
+verify_certificate_access
+
 # Configure registry access
 configure_registry_access
+
+# Verify registry connection
+verify_registry_connection
 
 # Before deploy_app, add:
 IMAGE_TAG=$(select_image_version)

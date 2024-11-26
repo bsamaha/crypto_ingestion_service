@@ -13,11 +13,11 @@ spec:
         app: coinbase-ws
     spec:
       imagePullSecrets:
-      - name: regcred
+      - name: local-registry-cred
       containers:
       - name: coinbase-ws
-        image: bsamaha/coinbase-data-ingestion-service:1.0.0
-        imagePullPolicy: IfNotPresent
+        image: coinbase-data-ingestion-service:1.0.0
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
         envFrom:
