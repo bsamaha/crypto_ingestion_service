@@ -244,9 +244,9 @@ configure_registry_access() {
     
     # Create registry secret for pulling images from local registry
     kubectl create secret docker-registry local-registry-cred \
-        --docker-server="https://${REGISTRY_HOST}:${REGISTRY_PORT}" \
-        --docker-username="" \
-        --docker-password="" \
+        --docker-server="${REGISTRY_HOST}:${REGISTRY_PORT}" \
+        --docker-username="_" \
+        --docker-password="_" \
         --docker-email="noreply@local.registry" \
         --namespace=$NAMESPACE \
         --dry-run=client -o yaml | kubectl apply -f -
@@ -266,7 +266,7 @@ configure_registry_access() {
 
 verify_registry_connection() {
     echo -e "${YELLOW}Verifying registry connection...${NC}"
-    if ! curl --cacert /etc/rancher/k3s/certs/registry.crt -s "https://${REGISTRY_HOST}:${REGISTRY_PORT}/v2/_catalog" > /dev/null; then
+    if ! curl -k -s "https://${REGISTRY_HOST}:${REGISTRY_PORT}/v2/_catalog" > /dev/null; then
         echo -e "${RED}Cannot access registry at ${REGISTRY_HOST}:${REGISTRY_PORT}${NC}"
         echo "Please ensure:"
         echo "1. Registry container is running"
