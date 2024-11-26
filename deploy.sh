@@ -58,15 +58,15 @@ check_dependencies() {
         fi
     fi
 
-    # Check Docker permissions
-    if ! groups | grep -q docker; then
-        echo -e "${YELLOW}Adding user to docker group...${NC}"
-        sudo usermod -aG docker $USER
-        echo -e "${YELLOW}Please log out and back in for changes to take effect${NC}"
-        echo -e "${YELLOW}For now, running with sudo...${NC}"
-        export DOCKER_SUDO="sudo"
-    else
-        export DOCKER_SUDO=""
+    # Check for yq
+    if ! command -v yq &> /dev/null; then
+        echo -e "${YELLOW}Installing yq...${NC}"
+        sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+        sudo chmod +x /usr/bin/yq
+        if ! command -v yq &> /dev/null; then
+            echo -e "${RED}Failed to install yq. Please install manually.${NC}"
+            exit 1
+        fi
     fi
     
     # Check for kubectl kustomize first
