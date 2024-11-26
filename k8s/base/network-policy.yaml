@@ -28,6 +28,9 @@ spec:
       protocol: UDP
     - port: 53
       protocol: TCP
-  - ports:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
     - port: 443
       protocol: TCP
