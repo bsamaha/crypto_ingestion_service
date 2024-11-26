@@ -7,6 +7,11 @@ resources:
 
 namePrefix: dev-
 
+images:
+- name: coinbase-data-ingestion-service
+  newName: 192.168.1.221:5001/coinbase-data-ingestion-service
+  newTag: latest
+
 patches:
 - patch: |-
     - op: replace
