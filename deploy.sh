@@ -3,7 +3,10 @@
 # Default values
 NAMESPACE="trading"
 IMAGE_TAG="1.0.0"
-IMAGE_NAME="bsamaha/coinbase-data-ingestion-service"
+REGISTRY_HOST=${REGISTRY_HOST:-"192.168.1.221"}
+REGISTRY_PORT=${REGISTRY_PORT:-"5001"}
+IMAGE_NAME="coinbase-data-ingestion-service"
+FULL_IMAGE_NAME="${REGISTRY_HOST}:${REGISTRY_PORT}/${IMAGE_NAME}"
 
 # Color codes for output
 RED='\033[0;31m'
@@ -19,6 +22,41 @@ show_help() {
     echo "  -n, --namespace       Kubernetes namespace [default: trading]"
     echo "  -t, --tag            Docker image tag [default: 1.0.0]"
     echo "  -h, --help           Show this help message"
+}
+
+# Add this function after the show_help() function
+select_image_version() {
+    local default_tag="latest"
+    
+    # Get available tags from registry
+    echo -e "${YELLOW}Fetching available tags from registry...${NC}"
+    local tags_json=$(curl -sk "https://${REGISTRY_HOST}:${REGISTRY_PORT}/v2/${IMAGE_NAME}/tags/list")
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Failed to fetch tags from registry${NC}"
+        echo -e "${YELLOW}Defaulting to 'latest' tag${NC}"
+        echo "$default_tag"
+        return
+    fi
+    
+    echo "Available tags:"
+    echo "$tags_json" | jq -r '.tags[]' | nl
+    
+    echo -e "\nSelect tag (press Enter for 'latest'):"
+    read -r tag_choice
+    
+    if [ -z "$tag_choice" ]; then
+        echo "$default_tag"
+    else
+        # Get the selected tag from the list
+        selected_tag=$(echo "$tags_json" | jq -r ".tags[$((tag_choice-1))]" 2>/dev/null)
+        if [ -n "$selected_tag" ] && [ "$selected_tag" != "null" ]; then
+            echo "$selected_tag"
+        else
+            echo -e "${RED}Invalid selection. Using 'latest'${NC}"
+            echo "$default_tag"
+        fi
+    fi
 }
 
 setup_namespaces() {
@@ -201,8 +239,29 @@ verify_kafka() {
     fi
 }
 
+configure_registry_access() {
+    echo "Configuring registry access..."
+    
+    # Create registry secret for pulling images
+    kubectl create secret docker-registry local-registry-cred \
+        --docker-server=https://${REGISTRY_HOST}:${REGISTRY_PORT} \
+        --docker-username=${DOCKER_USERNAME} \
+        --docker-password=${DOCKER_PASSWORD} \
+        --namespace=$NAMESPACE \
+        --dry-run=client -o yaml | kubectl apply -f -
+        
+    # Patch default service account to use the secret
+    kubectl patch serviceaccount default \
+        -p "{\"imagePullSecrets\": [{\"name\": \"local-registry-cred\"}]}" \
+        -n $NAMESPACE
+}
+
 deploy_app() {
     echo "Deploying application..."
+    
+    # Update the image and tag in the kustomization file
+    sed -i "s|newName: .*|newName: ${REGISTRY_HOST}:${REGISTRY_PORT}/${IMAGE_NAME}|" k8s/overlays/dev/kustomization.yaml
+    sed -i "s|newTag: .*|newTag: ${IMAGE_TAG}|" k8s/overlays/dev/kustomization.yaml
     
     # Apply kustomization using kubectl
     kubectl apply -k k8s/overlays/dev -n $NAMESPACE
@@ -283,6 +342,14 @@ fi
 
 # Verify Kafka is available
 verify_kafka
+
+# Configure registry access
+configure_registry_access
+
+# Before deploy_app, add:
+IMAGE_TAG=$(select_image_version)
+FULL_IMAGE_NAME="${REGISTRY_HOST}:${REGISTRY_PORT}/${IMAGE_NAME}:${IMAGE_TAG}"
+echo -e "${GREEN}Using image: ${FULL_IMAGE_NAME}${NC}"
 
 # Deploy application
 deploy_app
