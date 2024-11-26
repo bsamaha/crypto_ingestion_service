@@ -2,7 +2,7 @@
 
 # Default values
 NAMESPACE="trading"
-IMAGE_TAG="1.0.0"
+IMAGE_TAG=${IMAGE_TAG:-"latest"}
 REGISTRY_HOST=${REGISTRY_HOST:-"192.168.1.221"}
 REGISTRY_PORT=${REGISTRY_PORT:-"5001"}
 IMAGE_NAME="coinbase-data-ingestion-service"
@@ -20,43 +20,8 @@ show_help() {
     echo
     echo "Options:"
     echo "  -n, --namespace       Kubernetes namespace [default: trading]"
-    echo "  -t, --tag            Docker image tag [default: 1.0.0]"
+    echo "  -v, --version        Image version/tag [default: latest]"
     echo "  -h, --help           Show this help message"
-}
-
-# Add this function after the show_help() function
-select_image_version() {
-    local default_tag="latest"
-    
-    # Get available tags from registry
-    echo -e "${YELLOW}Fetching available tags from registry...${NC}"
-    local tags_json=$(curl -sk "https://${REGISTRY_HOST}:${REGISTRY_PORT}/v2/${IMAGE_NAME}/tags/list")
-    
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}Failed to fetch tags from registry${NC}"
-        echo -e "${YELLOW}Defaulting to 'latest' tag${NC}"
-        echo "$default_tag"
-        return
-    fi
-    
-    echo "Available tags:"
-    echo "$tags_json" | jq -r '.tags[]' | nl
-    
-    echo -e "\nSelect tag (press Enter for 'latest'):"
-    read -r tag_choice
-    
-    if [ -z "$tag_choice" ]; then
-        echo "$default_tag"
-    else
-        # Get the selected tag from the list
-        selected_tag=$(echo "$tags_json" | jq -r ".tags[$((tag_choice-1))]" 2>/dev/null)
-        if [ -n "$selected_tag" ] && [ "$selected_tag" != "null" ]; then
-            echo "$selected_tag"
-        else
-            echo -e "${RED}Invalid selection. Using 'latest'${NC}"
-            echo "$default_tag"
-        fi
-    fi
 }
 
 setup_namespaces() {
@@ -340,7 +305,7 @@ while [[ $# -gt 0 ]]; do
             NAMESPACE="$2"
             shift 2
             ;;
-        -t|--tag)
+        -v|--version)
             IMAGE_TAG="$2"
             shift 2
             ;;
@@ -386,9 +351,7 @@ configure_registry_access
 verify_registry_connection
 
 # Before deploy_app, add:
-IMAGE_TAG=$(select_image_version)
-FULL_IMAGE_NAME="${REGISTRY_HOST}:${REGISTRY_PORT}/${IMAGE_NAME}:${IMAGE_TAG}"
-echo -e "${GREEN}Using image: ${FULL_IMAGE_NAME}${NC}"
+echo -e "${GREEN}Using image: ${FULL_IMAGE_NAME}:${IMAGE_TAG}${NC}"
 
 # Deploy application
 deploy_app
