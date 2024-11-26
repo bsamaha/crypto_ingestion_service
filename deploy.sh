@@ -93,7 +93,7 @@ check_first_time_deployment() {
         return 0
     fi
     
-    if ! kubectl get secret dev-coinbase-secrets -n $NAMESPACE >/dev/null 2>&1; then
+    if ! kubectl get secret coinbase-secrets -n $NAMESPACE >/dev/null 2>&1; then
         echo -e "${YELLOW}Secrets not found - setting up environment${NC}"
         return 0
     fi
@@ -146,42 +146,34 @@ setup_docker_secret() {
 build_env_file() {
     echo -e "${YELLOW}Checking for existing secrets...${NC}"
     
-    if kubectl get secret dev-coinbase-secrets -n $NAMESPACE >/dev/null 2>&1; then
+    if kubectl get secret coinbase-secrets -n $NAMESPACE >/dev/null 2>&1; then
         echo -e "${GREEN}Secrets already exist${NC}"
         read -p "Do you want to update the secrets? (y/n) " UPDATE_SECRETS
         if [[ $UPDATE_SECRETS != "y" ]]; then
-            return
+            return 0
         fi
     fi
     
-    echo -e "${YELLOW}Setting up Coinbase API credentials${NC}"
+    # Prompt for Coinbase API credentials
+    echo -e "${YELLOW}Please enter Coinbase API credentials:${NC}"
+    read -p "API Key: " COINBASE_API_KEY
+    read -s -p "API Secret: " COINBASE_API_SECRET
+    echo
     
-    while true; do
-        read -p "Coinbase API Key: " COINBASE_API_KEY
-        if [[ -n "$COINBASE_API_KEY" ]]; then
-            break
-        fi
-        echo -e "${RED}API Key cannot be empty${NC}"
-    done
-    
-    while true; do
-        read -s -p "Coinbase API Secret: " COINBASE_API_SECRET
-        echo
-        if [[ -n "$COINBASE_API_SECRET" ]]; then
-            break
-        fi
-        echo -e "${RED}API Secret cannot be empty${NC}"
-    done
-
-    export COINBASE_API_KEY
-    export COINBASE_API_SECRET
-    
-    echo "Creating Kubernetes secrets..."
+    # Create secrets.yaml from template
     cp k8s/overlays/dev/secrets.template.yaml k8s/overlays/dev/secrets.yaml
-    envsubst '${COINBASE_API_KEY} ${COINBASE_API_SECRET}' < k8s/overlays/dev/secrets.template.yaml > k8s/overlays/dev/secrets.yaml
     
-    unset COINBASE_API_KEY
-    unset COINBASE_API_SECRET
+    # Update the secrets with the provided values using yq for better YAML handling
+    yq e ".stringData.COINBASE_API_KEY = \"$COINBASE_API_KEY\"" -i k8s/overlays/dev/secrets.yaml
+    yq e ".stringData.COINBASE_API_SECRET = \"$COINBASE_API_SECRET\"" -i k8s/overlays/dev/secrets.yaml
+    
+    echo -e "${GREEN}Secrets file created${NC}"
+    
+    # Verify the secret was created properly
+    if ! kubectl get secret coinbase-secrets -n $NAMESPACE >/dev/null 2>&1; then
+        echo -e "${RED}Failed to create secret${NC}"
+        exit 1
+    fi
 }
 
 verify_kafka() {

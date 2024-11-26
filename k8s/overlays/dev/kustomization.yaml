@@ -5,8 +5,6 @@ resources:
 - ../../base
 - secrets.yaml
 
-namePrefix: dev-
-
 images:
 - name: coinbase-data-ingestion-service
   newName: 192.168.1.221:5001/coinbase-data-ingestion-service
@@ -20,10 +18,3 @@ patches:
   target:
     kind: Deployment
     name: coinbase-ws
-- patch: |-
-    - op: replace
-      path: /metadata/name
-      value: coinbase-secrets
-  target:
-    kind: Secret
-    name: coinbase-secrets
