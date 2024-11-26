@@ -7,7 +7,8 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # Default values
-IMAGE_NAME="bsamaha/coinbase-data-ingestion-service"
+REGISTRY="192.168.1.221:5001"
+IMAGE_NAME="coinbase-data-ingestion-service"
 VERSION_FILE=".version"
 
 # Create version file if it doesn't exist
@@ -22,10 +23,11 @@ show_help() {
     echo "Usage: ./docker_build_and_push.sh [options]"
     echo
     echo "Options:"
-    echo "  -n, --name       Image name [default: bsamaha/coinbase-data-ingestion-service]"
+    echo "  -n, --name       Image name [default: coinbase-data-ingestion-service]"
     echo "  -h, --help       Show this help message"
     echo
     echo "Current version: $CURRENT_VERSION"
+    echo "Registry: $REGISTRY"
 }
 
 increment_version() {
@@ -97,26 +99,101 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Full image names with registry
+FULL_IMAGE_NAME="${REGISTRY}/${IMAGE_NAME}"
+VERSION_TAG="${FULL_IMAGE_NAME}:${CURRENT_VERSION}"
+LATEST_TAG="${FULL_IMAGE_NAME}:latest"
+
 # Prompt for version update
 prompt_version_update
 
-# Build the image
-echo -e "${YELLOW}Building image ${IMAGE_NAME}:${CURRENT_VERSION}${NC}"
-docker build -t "${IMAGE_NAME}:${CURRENT_VERSION}" -t "${IMAGE_NAME}:latest" .
+verify_docker_image() {
+    local image_tag=$1
+    echo -e "${YELLOW}Verifying image: ${image_tag}${NC}"
+    
+    # Check if image exists locally
+    if ! docker image inspect "${image_tag}" >/dev/null 2>&1; then
+        echo -e "${RED}Error: Image ${image_tag} not found locally${NC}"
+        return 1
+    fi
+    
+    # Check image size and display it
+    local size=$(docker image inspect "${image_tag}" --format='{{.Size}}')
+    local size_mb=$((size/1024/1024))
+    echo -e "${GREEN}Local image size: ${size_mb}MB${NC}"
+    
+    if [ "$size" -eq 0 ]; then
+        echo -e "${RED}Error: Image ${image_tag} has 0 byte size${NC}"
+        return 1
+    fi
+    
+    return 0
+}
 
-if [ $? -ne 0 ]; then
+push_with_retry() {
+    local image_tag=$1
+    local max_retries=3
+    local retry_count=0
+    
+    while [ $retry_count -lt $max_retries ]; do
+        echo -e "${YELLOW}Pushing ${image_tag} (Attempt $((retry_count + 1))/${max_retries})${NC}"
+        
+        if docker push "${image_tag}" 2>&1 | tee /tmp/push_output.log; then
+            echo -e "${GREEN}Successfully pushed ${image_tag}${NC}"
+            return 0
+        fi
+        
+        echo -e "${RED}Push failed. Error output:${NC}"
+        cat /tmp/push_output.log
+        
+        retry_count=$((retry_count + 1))
+        if [ $retry_count -lt $max_retries ]; then
+            echo "Waiting 10 seconds before retry..."
+            sleep 10
+        fi
+    done
+    
+    echo -e "${RED}Failed to push after ${max_retries} attempts${NC}"
+    return 1
+}
+
+# Build the image
+echo -e "${YELLOW}Building image ${VERSION_TAG}${NC}"
+if ! docker build --no-cache -t "${VERSION_TAG}" -t "${LATEST_TAG}" .; then
     echo -e "${RED}Build failed${NC}"
     exit 1
 fi
 
-# Push the image
-echo -e "${YELLOW}Pushing image ${IMAGE_NAME}:${CURRENT_VERSION}${NC}"
-docker push "${IMAGE_NAME}:${CURRENT_VERSION}"
-docker push "${IMAGE_NAME}:latest"
+# Verify local images
+verify_docker_image "${VERSION_TAG}"
+verify_docker_image "${LATEST_TAG}"
 
-if [ $? -eq 0 ]; then
-    echo -e "${GREEN}Successfully built and pushed version ${CURRENT_VERSION}${NC}"
-else
-    echo -e "${RED}Failed to push image${NC}"
+# Test registry connectivity
+echo -e "${YELLOW}Testing registry connectivity...${NC}"
+if ! curl -k -f "https://${REGISTRY}/v2/_catalog" >/dev/null 2>&1; then
+    echo -e "${RED}Cannot connect to registry at ${REGISTRY}${NC}"
     exit 1
 fi
+
+# Push images with retry logic
+if ! push_with_retry "${VERSION_TAG}"; then
+    echo -e "${RED}Failed to push version tag${NC}"
+    exit 1
+fi
+
+if ! push_with_retry "${LATEST_TAG}"; then
+    echo -e "${RED}Failed to push latest tag${NC}"
+    exit 1
+fi
+
+# Verify remote image
+echo -e "${YELLOW}Verifying remote image...${NC}"
+docker rmi "${VERSION_TAG}" "${LATEST_TAG}"
+if ! docker pull "${VERSION_TAG}"; then
+    echo -e "${RED}Failed to verify remote image${NC}"
+    exit 1
+fi
+
+verify_docker_image "${VERSION_TAG}"
+
+echo -e "${GREEN}Successfully built and pushed version ${CURRENT_VERSION}${NC}"

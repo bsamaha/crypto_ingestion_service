@@ -161,10 +161,174 @@ Configuration is handled through environment variables or `.env` file:
 4. Run tests and ensure coverage
 5. Submit a pull request
 
-## License
+# Private Registry Setup and Workflow
 
-[Your License Here]
+## Registry Information
+- Registry Address: `{registry_ip_address}{registry_port}`
+- SSL: Self-signed certificate
+- Access: Available within local network
 
+## Development Workflow
+
+### Initial Setup
+
+1. **Configure Docker Desktop**
+   ```powershell
+   # Verify registry connection
+   curl -k https://{registry_ip_address}{registry_port}/v2/_catalog
+   ```
+
+2. **Build Images for Local Development**
+   ```bash
+   # Format: {registry_ip_address}{registry_port}/{project-name}:{tag}
+   docker build -t {registry_ip_address}{registry_port}/myproject:dev .
+   docker push {registry_ip_address}{registry_port}/myproject:dev
+   ```
+
+### Daily Development Workflow
+
+1. **Building Images**
+   ```bash
+   # Development builds
+   docker build -t {registry_ip_address}{registry_port}/myproject:dev .
+   
+   # Feature branches
+   docker build -t {registry_ip_address}{registry_port}/myproject:feature-name .
+   
+   # Release versions
+   docker build -t {registry_ip_address}{registry_port}/myproject:v1.0.0 .
+   ```
+
+2. **Testing Locally**
+   ```bash
+   # Run locally before pushing
+   docker run -d {registry_ip_address}{registry_port}/myproject:dev
+   
+   # Run integration tests
+   docker-compose -f docker-compose.test.yml up
+   ```
+
+3. **Pushing to Registry**
+   ```bash
+   # Push development version
+   docker push {registry_ip_address}{registry_port}/myproject:dev
+   
+   # Push release version
+   docker push {registry_ip_address}{registry_port}/myproject:v1.0.0
+   ```
+
+### Kubernetes Deployment
+
+1. **Update Kubernetes Manifests**
+   ```yaml
+   apiVersion: apps/v1
+   kind: Deployment
+   metadata:
+     name: myapp
+   spec:
+     template:
+       spec:
+         containers:
+         - name: myapp
+           image: {registry_ip_address}{registry_port}/myproject:dev  # Use registry address
+   ```
+
+2. **Apply Updates**
+   ```bash
+   kubectl apply -f k8s/deployment.yaml
+   ```
+
+### Best Practices
+
+1. **Image Tagging Convention**
+   - `dev`: Latest development build
+   - `feature-*`: Feature branch builds
+   - `v*.*.*`: Release versions
+   - `latest`: Stable production build
+
+2. **Registry Maintenance**
+   - Regularly clean up old development tags
+   - Keep release versions tagged properly
+   - Document breaking changes in image versions
+
+3. **Local Development**
+   - Always test builds locally before pushing
+   - Use docker-compose for multi-container testing
+   - Tag images appropriately for different environments
+
+### Troubleshooting
+
+1. **Registry Connection Issues**
+   ```bash
+   # Test registry connection
+   curl -k https://{registry_ip_address}{registry_port}/v2/_catalog
+   
+   # Check registry contents
+   curl -k https://{registry_ip_address}{registry_port}/v2/{repository}/tags/list
+   ```
+
+2. **Common Issues**
+   - Certificate errors: Verify registry certificate is properly installed
+   - Push failures: Check network connectivity and Docker daemon settings
+   - Pull failures in k8s: Verify node configuration and registry access
+
+### CI/CD Integration
+
+1. **Local CI Runner Setup**
+   ```yaml
+   # .gitlab-ci.yml or GitHub Actions example
+   build:
+     script:
+       - docker build -t {registry_ip_address}{registry_port}/myproject:${CI_COMMIT_SHA} .
+       - docker push {registry_ip_address}{registry_port}/myproject:${CI_COMMIT_SHA}
+   ```
+
+2. **Deployment Automation**
+   ```bash
+   # Example deployment script
+   TAG=$(git rev-parse --short HEAD)
+   docker build -t {registry_ip_address}{registry_port}/myproject:${TAG} .
+   docker push {registry_ip_address}{registry_port}/myproject:${TAG}
+   sed -i "s|image:.*|image: {registry_ip_address}{registry_port}/myproject:${TAG}|" k8s/deployment.yaml
+   kubectl apply -f k8s/deployment.yaml
+   ```
+
+### Environment Setup Scripts
+
+1. **Windows PowerShell**
+   ```powershell
+   # Set environment variables
+   $env:REGISTRY_HOST="{registry_ip_address}{registry_port}"
+   $env:PROJECT_NAME="myproject"
+   
+   # Build and push
+   docker build -t ${env:REGISTRY_HOST}/${env:PROJECT_NAME}:dev .
+   docker push ${env:REGISTRY_HOST}/${env:PROJECT_NAME}:dev
+   ```
+
+2. **Linux/WSL2**
+   ```bash
+   # Set environment variables
+   export REGISTRY_HOST="{registry_ip_address}{registry_port}"
+   export PROJECT_NAME="myproject"
+   
+   # Build and push
+   docker build -t ${REGISTRY_HOST}/${PROJECT_NAME}:dev .
+   docker push ${REGISTRY_HOST}/${PROJECT_NAME}:dev
+   ```
+
+### Security Notes
+
+- Registry uses self-signed certificates
+- Access is restricted to local network
+- No authentication required (internal use only)
+- Keep sensitive data out of image builds
+
+### Additional Resources
+
+- [Docker Registry Documentation](https://docs.docker.com/registry/)
+- [Kubernetes Private Registry Guide](https://kubernetes.io/docs/concepts/containers/images/#using-a-private-registry)
+- Team-specific documentation (add links here)
 ## Support
 
 For issues and feature requests, please use the GitHub issue tracker.
