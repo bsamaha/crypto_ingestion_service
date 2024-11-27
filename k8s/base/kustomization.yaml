@@ -6,6 +6,7 @@ resources:
 - service.yaml
 - network-policy.yaml
 - secrets.yaml
+- configmap.yaml
 
 images:
 - name: coinbase-data-ingestion-service

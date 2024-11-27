@@ -144,58 +144,58 @@ setup_docker_secret() {
 }
 
 build_env_file() {
-    echo -e "${YELLOW}Checking for existing secrets...${NC}"
+    echo -e "${YELLOW}Setting up application secrets...${NC}"
     
-    # Create secrets.yaml from template
-    cp k8s/base/secrets.template.yaml k8s/base/secrets.yaml
+    # Create a temporary file for secrets
+    TEMP_SECRETS=$(mktemp)
     
-    # Prompt for Coinbase API credentials
-    echo -e "${YELLOW}Please enter Coinbase API credentials:${NC}"
-    echo -e "${YELLOW}Note: Paste the entire key/secret without line breaks${NC}"
+    # Prompt for API credentials with clear instructions
+    echo -e "${YELLOW}Please paste your Coinbase API credentials:${NC}"
+    echo -e "${GREEN}Note: Paste the credentials exactly as provided by Coinbase, including newlines${NC}"
+    echo -e "API Key (format: organizations/...): "
+    read -r API_KEY
     
-    # Read credentials and clean them
-    read -p "API Key: " RAW_API_KEY
-    read -s -p "API Secret: " RAW_API_SECRET
-    echo
+    echo -e "\nAPI Secret (format: -----BEGIN EC PRIVATE KEY-----...): "
+    echo -e "${YELLOW}Press Ctrl+D (or Ctrl+Z on Windows) after pasting the private key${NC}"
+    API_SECRET=$(cat)
     
-    # Clean the API key (simple alphanumeric cleaning)
-    COINBASE_API_KEY=$(echo "$RAW_API_KEY" | tr -d '[:space:]"' | tr -d '\n')
-    
-    # Handle the EC private key format properly
-    # First, clean any extra spaces or quotes
-    CLEANED_SECRET=$(echo "$RAW_API_SECRET" | tr -d '"')
-    # Ensure proper newline handling
-    COINBASE_API_SECRET=$(echo "$CLEANED_SECRET" | sed 's/\\n/\n/g')
-    
-    # Verify API key format
-    if [[ ! $COINBASE_API_KEY =~ ^[A-Za-z0-9+/=\-/]+$ ]]; then
-        echo -e "${RED}Error: API key contains invalid characters${NC}"
-        echo "API key should only contain alphanumeric characters, +/=, hyphens, and slashes"
+    # Validate API credentials format
+    if [[ ! "$API_KEY" =~ ^organizations/.*$ ]]; then
+        echo -e "${RED}Error: Invalid API key format. Should start with 'organizations/'${NC}"
+        rm "$TEMP_SECRETS"
         exit 1
     fi
     
-    # Verify API secret format
-    if ! echo "$COINBASE_API_SECRET" | grep -q "^-----BEGIN EC PRIVATE KEY-----" || \
-       ! echo "$COINBASE_API_SECRET" | grep -q "-----END EC PRIVATE KEY-----$"; then
-        echo -e "${RED}Error: API secret does not appear to be a valid EC private key${NC}"
+    if [[ ! "$API_SECRET" =~ "BEGIN EC PRIVATE KEY" ]]; then
+        echo -e "${RED}Error: Invalid API secret format. Should be an EC private key${NC}"
+        rm "$TEMP_SECRETS"
         exit 1
     fi
     
-    # Update the secrets with the cleaned values
-    yq eval-all ".stringData.COINBASE_API_KEY = \"$COINBASE_API_KEY\"" -i k8s/base/secrets.yaml
-    yq eval-all ".stringData.COINBASE_API_SECRET = \"${COINBASE_API_SECRET}\"" -i k8s/base/secrets.yaml
-    
-    echo -e "${GREEN}Secrets file created${NC}"
-    
-    # Verify the secret format before applying
-    echo -e "${YELLOW}Verifying secret format...${NC}"
-    if ! yq eval '.stringData.COINBASE_API_SECRET' k8s/base/secrets.yaml | grep -q "BEGIN EC PRIVATE KEY"; then
-        echo -e "${RED}Error: Secret format verification failed${NC}"
+    # Create the secrets yaml with proper handling of newlines
+    cat > "$TEMP_SECRETS" <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: coinbase-secrets
+type: Opaque
+stringData:
+  COINBASE_API_KEY: "${API_KEY}"
+  COINBASE_API_SECRET: |
+$(echo "$API_SECRET" | sed 's/^/    /')
+EOF
+
+    # Apply the secrets
+    if ! kubectl apply -f "$TEMP_SECRETS" -n "$NAMESPACE"; then
+        echo -e "${RED}Failed to apply secrets${NC}"
+        rm "$TEMP_SECRETS"
         exit 1
     fi
     
-    # Apply the secrets directly
-    kubectl apply -f k8s/base/secrets.yaml -n $NAMESPACE
+    # Clean up
+    rm "$TEMP_SECRETS"
+    
+    echo -e "${GREEN}Secrets configured successfully${NC}"
 }
 
 verify_kafka() {
@@ -332,65 +332,75 @@ verify_certificate_access() {
     echo -e "${GREEN}Registry certificate accessible${NC}"
 }
 
-# Parse command line arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -n|--namespace)
-            NAMESPACE="$2"
-            shift 2
-            ;;
-        -v|--version)
-            IMAGE_TAG="$2"
-            shift 2
-            ;;
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        *)
-            echo -e "${RED}Unknown option: $1${NC}"
-            show_help
-            exit 1
-            ;;
-    esac
-done
-
-# Main execution
-echo "Namespace: $NAMESPACE"
-echo "Image tag: $IMAGE_TAG"
-
-# Check dependencies
-check_dependencies
-
-# Setup required namespaces
-setup_namespaces
-
-# Check if this is a first time deployment
-if check_first_time_deployment; then
+setup_complete_deployment() {
+    echo -e "${YELLOW}Starting complete deployment setup...${NC}"
+    
+    # 1. Create and label namespaces
+    setup_namespaces
+    
+    # 2. Set up Docker credentials
     setup_docker_credentials
     setup_docker_secret
-    build_env_file
-fi
+    
+    # 3. Configure registry access
+    configure_registry_access
+    verify_registry_connection
+    
+    # 4. Set up secrets and config
+    if check_first_time_deployment; then
+        build_env_file
+    fi
+    
+    # 5. Verify Kafka (if needed)
+    verify_kafka
+    
+    # 6. Apply ConfigMap
+    echo "Applying ConfigMap..."
+    kubectl apply -f k8s/base/configmap.yaml -n "$NAMESPACE"
+    
+    # 7. Deploy the application
+    deploy_app
+    
+    # 8. Verify deployment
+    verify_deployment
+    
+    echo -e "${GREEN}Complete deployment setup finished successfully${NC}"
+}
 
-# Verify Kafka is available
-verify_kafka
+# Main script execution
+main() {
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -n|--namespace)
+                NAMESPACE="$2"
+                shift 2
+                ;;
+            -v|--version)
+                IMAGE_TAG="$2"
+                shift 2
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            *)
+                echo -e "${RED}Unknown option: $1${NC}"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+    
+    echo "Namespace: $NAMESPACE"
+    echo "Image tag: $IMAGE_TAG"
+    
+    # Check dependencies
+    check_dependencies
+    
+    # Run complete deployment
+    setup_complete_deployment
+}
 
-# Verify certificate access
-verify_certificate_access
-
-# Configure registry access
-configure_registry_access
-
-# Verify registry connection
-verify_registry_connection
-
-# Before deploy_app, add:
-echo -e "${GREEN}Using image: ${FULL_IMAGE_NAME}:${IMAGE_TAG}${NC}"
-
-# Deploy application
-deploy_app
-
-# Verify deployment
-verify_deployment
-
-echo -e "${GREEN}Deployment process completed${NC}"
+# Run main function
+main "$@"

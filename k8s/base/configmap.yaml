@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coinbase-config
+data:
+  # Logging configuration
+  LOG_LEVEL: "INFO"
+  METRICS_PORT: "8000"
+  
+  # WebSocket configuration
+  WS_TIMEOUT: "30"
+  WS_MAX_SIZE: "1048576"
+  RECONNECT_DELAY: "20"
+  ENABLE_HEARTBEAT: "true"
+  ENABLE_DEBUG_METRICS: "false"
+  
+  # Trading configuration
+  PRODUCT_IDS: '["BTC-USD","ETH-USD"]'
+  CHANNELS: '["candles","heartbeats"]'
+  
+  # Kafka configuration
+  KAFKA_ENABLED: "false"
+  KAFKA_BOOTSTRAP_SERVERS: "trading-cluster-kafka-bootstrap.kafka:9092"
+  KAFKA_TOPIC: "coinbase.candles"
