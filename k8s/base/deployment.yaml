@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: coinbase-ws
+  namespace: trading
 spec:
   replicas: 1
   selector:
@@ -23,6 +24,11 @@ spec:
         envFrom:
         - secretRef:
             name: coinbase-secrets
+        env:
+        - name: KAFKA_ENABLED
+          value: "false"
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "trading-cluster-kafka-bootstrap.kafka:9092"
         livenessProbe:
           httpGet:
             path: /health

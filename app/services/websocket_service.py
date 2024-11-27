@@ -26,12 +26,15 @@ class WebsocketService:
     
     async def start(self):
         """Initialize and start the service"""
-        try:
-            await self.kafka_producer.connect()
-            self._kafka_connected = True
-        except Exception as e:
-            self.logger.error(f"Failed to start Kafka producer: {str(e)}")
-            raise
+        if self.config.KAFKA_ENABLED:
+            try:
+                await self.kafka_producer.connect()
+                self._kafka_connected = True
+            except Exception as e:
+                self.logger.error(f"Failed to start Kafka producer: {str(e)}")
+                raise
+        else:
+            self.logger.info("Kafka integration disabled, skipping connection")
 
     async def stop(self):
         """Graceful shutdown method"""
@@ -80,18 +83,19 @@ class WebsocketService:
                             for candle in event.get('candles', []):
                                 log_candle_json(candle, self.logger)
                                 
-                                kafka_message = {
-                                    "event_time": datetime.fromtimestamp(int(candle['start'])).isoformat(),
-                                    "symbol": candle['product_id'],
-                                    "open_price": candle['open'],
-                                    "high_price": candle['high'],
-                                    "low_price": candle['low'],
-                                    "close_price": candle['close'],
-                                    "volume": candle['volume'],
-                                    "start_time": int(candle['start'])
-                                }
-                                
-                                asyncio.create_task(self.kafka_producer.send_message(self.config.KAFKA_TOPIC, kafka_message))
+                                if self.config.KAFKA_ENABLED:
+                                    kafka_message = {
+                                        "event_time": datetime.fromtimestamp(int(candle['start'])).isoformat(),
+                                        "symbol": candle['product_id'],
+                                        "open_price": candle['open'],
+                                        "high_price": candle['high'],
+                                        "low_price": candle['low'],
+                                        "close_price": candle['close'],
+                                        "volume": candle['volume'],
+                                        "start_time": int(candle['start'])
+                                    }
+                                    
+                                    asyncio.create_task(self.kafka_producer.send_message(self.config.KAFKA_TOPIC, kafka_message))
                                 
                                 metrics.record_message(
                                     symbol=candle['product_id'],

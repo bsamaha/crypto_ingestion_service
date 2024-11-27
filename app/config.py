@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, ValidationInfo
 from typing import List, Optional, Any
 from functools import lru_cache
 import json
@@ -91,11 +91,11 @@ class Settings(BaseSettings):
 
     # Kafka Configuration
     KAFKA_BOOTSTRAP_SERVERS: str = Field(
-        default="trading-cluster-kafka-bootstrap.kafka:9092",
+        default="localhost:9092",
         description="Kafka bootstrap servers"
     )
     KAFKA_ENABLED: bool = Field(
-        default=True,
+        default=False,
         description="Enable/disable Kafka message publishing"
     )
     KAFKA_TOPIC: str = Field(
@@ -149,12 +149,13 @@ class Settings(BaseSettings):
     
     @field_validator('COINBASE_API_KEY', 'COINBASE_API_SECRET')
     @classmethod
-    def validate_api_credentials(cls, v: str, field: Any) -> str:
+    def validate_api_credentials(cls, v: str, info: ValidationInfo) -> str:
         """Ensure API credentials are properly formatted"""
-        if field.name == 'COINBASE_API_KEY':
+        if info.field_name == 'COINBASE_API_KEY':
             # Clean and validate API key
             cleaned = ''.join(v.split())
-            if not all(c in '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+/=' for c in cleaned):
+            # Allow path-like format with slashes and dashes
+            if not all(c in '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-/=' for c in cleaned):
                 raise ValueError("API key contains invalid characters")
             if len(cleaned) < 10:
                 raise ValueError("API key seems too short")

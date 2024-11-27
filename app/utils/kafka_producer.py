@@ -8,7 +8,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class KafkaMessageProducer:
-    def __init__(self, bootstrap_servers: str = "trading-cluster-kafka-bootstrap.kafka:9092", enabled: bool = True):
+    def __init__(self, bootstrap_servers: str = "localhost:9092", enabled: bool = False):
         self.bootstrap_servers = bootstrap_servers
         self.enabled = enabled
         self.producer: Optional[AIOKafkaProducer] = None
@@ -17,6 +17,10 @@ class KafkaMessageProducer:
 
     async def connect(self) -> None:
         """Connect to Kafka broker"""
+        if not self.enabled:
+            self.logger.info("Kafka is disabled, skipping connection")
+            return
+            
         try:
             self.producer = AIOKafkaProducer(
                 bootstrap_servers=self.bootstrap_servers,
@@ -29,7 +33,8 @@ class KafkaMessageProducer:
             self.logger.info("Connected to Kafka broker")
         except Exception as e:
             self.logger.error(f"Failed to connect to Kafka: {str(e)}", exc_info=True)
-            raise
+            if self.enabled:  # Only raise if Kafka was supposed to be enabled
+                raise
 
     async def disconnect(self) -> None:
         """Disconnect from Kafka broker"""

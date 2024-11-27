@@ -99,14 +99,22 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Full image names with registry
+# Prompt for version update
+prompt_version_update
+
+# Move these lines AFTER prompt_version_update since CURRENT_VERSION might change
 FULL_IMAGE_NAME="${REGISTRY}/${IMAGE_NAME}"
 VERSION_TAG="${FULL_IMAGE_NAME}:${CURRENT_VERSION}"
 LATEST_TAG="${FULL_IMAGE_NAME}:latest"
 
-# Prompt for version update
-prompt_version_update
+# Build the image
+echo -e "${YELLOW}Building image ${VERSION_TAG}${NC}"
+if ! docker build --no-cache -t "${VERSION_TAG}" -t "${LATEST_TAG}" .; then
+    echo -e "${RED}Build failed${NC}"
+    exit 1
+fi
 
+# Verify local images
 verify_docker_image() {
     local image_tag=$1
     echo -e "${YELLOW}Verifying image: ${image_tag}${NC}"
@@ -156,13 +164,6 @@ push_with_retry() {
     echo -e "${RED}Failed to push after ${max_retries} attempts${NC}"
     return 1
 }
-
-# Build the image
-echo -e "${YELLOW}Building image ${VERSION_TAG}${NC}"
-if ! docker build --no-cache -t "${VERSION_TAG}" -t "${LATEST_TAG}" .; then
-    echo -e "${RED}Build failed${NC}"
-    exit 1
-fi
 
 # Verify local images
 verify_docker_image "${VERSION_TAG}"
