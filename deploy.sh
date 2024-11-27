@@ -168,9 +168,9 @@ build_env_file() {
     COINBASE_API_SECRET=$(echo "$CLEANED_SECRET" | sed 's/\\n/\n/g')
     
     # Verify API key format
-    if [[ ! $COINBASE_API_KEY =~ ^[A-Za-z0-9+/=]+$ ]]; then
+    if [[ ! $COINBASE_API_KEY =~ ^[A-Za-z0-9+/=\-/]+$ ]]; then
         echo -e "${RED}Error: API key contains invalid characters${NC}"
-        echo "API key should only contain alphanumeric characters and +/="
+        echo "API key should only contain alphanumeric characters, +/=, hyphens, and slashes"
         exit 1
     fi
     
