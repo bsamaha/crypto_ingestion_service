@@ -151,24 +151,44 @@ build_env_file() {
     
     # Prompt for Coinbase API credentials
     echo -e "${YELLOW}Please enter Coinbase API credentials:${NC}"
-    read -p "API Key: " COINBASE_API_KEY
-    read -s -p "API Secret: " COINBASE_API_SECRET
+    echo -e "${YELLOW}Note: Paste the entire key/secret without line breaks${NC}"
+    
+    # Read credentials and clean them
+    read -p "API Key: " RAW_API_KEY
+    read -s -p "API Secret: " RAW_API_SECRET
     echo
     
-    # Update the secrets with the provided values
-    sed -i "s|COINBASE_API_KEY: \"\"|COINBASE_API_KEY: \"$COINBASE_API_KEY\"|" k8s/base/secrets.yaml
-    sed -i "s|COINBASE_API_SECRET: \"\"|COINBASE_API_SECRET: \"$COINBASE_API_SECRET\"|" k8s/base/secrets.yaml
+    # Clean the API key (simple alphanumeric cleaning)
+    COINBASE_API_KEY=$(echo "$RAW_API_KEY" | tr -d '[:space:]"' | tr -d '\n')
+    
+    # Special handling for API secret (preserve \n in EC private key)
+    # First, normalize newlines to actual newlines
+    NORMALIZED_SECRET=$(echo "$RAW_API_SECRET" | sed 's/\\n/\n/g')
+    # Then, convert actual newlines back to \n for yaml
+    COINBASE_API_SECRET=$(echo "$NORMALIZED_SECRET" | awk '{printf "%s\\n", $0}' | sed 's/\\n$//')
+    
+    # Verify API key format
+    if [[ ! $COINBASE_API_KEY =~ ^[A-Za-z0-9+/=]+$ ]]; then
+        echo -e "${RED}Error: API key contains invalid characters${NC}"
+        echo "API key should only contain alphanumeric characters and +/="
+        exit 1
+    fi
+    
+    # Verify API secret format
+    if ! echo "$NORMALIZED_SECRET" | grep -q "^-----BEGIN EC PRIVATE KEY-----" || \
+       ! echo "$NORMALIZED_SECRET" | grep -q "-----END EC PRIVATE KEY-----$"; then
+        echo -e "${RED}Error: API secret does not appear to be a valid EC private key${NC}"
+        exit 1
+    fi
+    
+    # Update the secrets with the cleaned values
+    yq e ".stringData.COINBASE_API_KEY = \"$COINBASE_API_KEY\"" -i k8s/base/secrets.yaml
+    yq e ".stringData.COINBASE_API_SECRET = \"$COINBASE_API_SECRET\"" -i k8s/base/secrets.yaml
     
     echo -e "${GREEN}Secrets file created${NC}"
     
     # Apply the secrets directly
     kubectl apply -f k8s/base/secrets.yaml -n $NAMESPACE
-    
-    # Verify the secret exists
-    if ! kubectl get secret coinbase-secrets -n $NAMESPACE >/dev/null 2>&1; then
-        echo -e "${RED}Failed to create secret${NC}"
-        exit 1
-    fi
 }
 
 verify_kafka() {
@@ -269,6 +289,26 @@ verify_deployment() {
         fi
     else
         echo -e "${RED}Error: No pods found${NC}"
+        exit 1
+    fi
+    
+    echo "Verifying API credentials format..."
+    CREDENTIALS_CHECK=$(kubectl exec $POD_NAME -n $NAMESPACE -- python3 -c "
+from app.config import get_settings
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
+try:
+    settings = get_settings()
+    # Try to load the private key to verify format
+    key_bytes = settings.COINBASE_API_SECRET.encode()
+    load_pem_private_key(key_bytes, password=None)
+    print('API credentials format verified')
+except Exception as e:
+    print(f'Error: {str(e)}')
+    exit(1)
+")
+    if [[ $? -ne 0 ]]; then
+        echo -e "${RED}Error: API credentials validation failed${NC}"
+        echo "$CREDENTIALS_CHECK"
         exit 1
     fi
 }

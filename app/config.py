@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
-from typing import List, Optional
+from typing import List, Optional, Any
 from functools import lru_cache
 import json
 import os
@@ -146,6 +146,28 @@ class Settings(BaseSettings):
         if not all(c.isalnum() or c in ('-', '_', '.') for c in v):
             raise ValueError("Kafka topic can only contain alphanumeric characters, '.', '-', and '_'")
         return v
+    
+    @field_validator('COINBASE_API_KEY', 'COINBASE_API_SECRET')
+    @classmethod
+    def validate_api_credentials(cls, v: str, field: Any) -> str:
+        """Ensure API credentials are properly formatted"""
+        if field.name == 'COINBASE_API_KEY':
+            # Clean and validate API key
+            cleaned = ''.join(v.split())
+            if not all(c in '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+/=' for c in cleaned):
+                raise ValueError("API key contains invalid characters")
+            if len(cleaned) < 10:
+                raise ValueError("API key seems too short")
+            return cleaned
+        else:  # COINBASE_API_SECRET
+            # Handle EC private key
+            # Replace literal \n with newlines for proper PEM format
+            normalized = v.replace('\\n', '\n')
+            if not normalized.startswith('-----BEGIN EC PRIVATE KEY-----'):
+                raise ValueError("API secret must be an EC private key")
+            if not normalized.endswith('-----END EC PRIVATE KEY-----\n'):
+                raise ValueError("API secret must be a properly formatted EC private key")
+            return normalized
     
     def model_post_init(self, *args, **kwargs):
         """Post-initialization processing"""
