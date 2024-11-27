@@ -156,7 +156,7 @@ build_env_file() {
     read -r API_KEY
     
     echo -e "\nAPI Secret (format: -----BEGIN EC PRIVATE KEY-----...): "
-    echo -e "${YELLOW}Press Ctrl+D (or Ctrl+Z on Windows) after pasting the private key${NC}"
+    echo -e "${YELLOW}Paste your private key, then press Enter, then press Ctrl+D${NC}"
     API_SECRET=$(cat)
     
     # Validate API credentials format
@@ -172,17 +172,33 @@ build_env_file() {
         exit 1
     fi
     
-    # Create the secrets yaml with proper handling of newlines
+    # Base64 encode the credentials
+    API_KEY_B64=$(echo -n "$API_KEY" | base64 -w 0)
+    API_SECRET_B64=$(echo -n "$API_SECRET" | base64 -w 0)
+    
+    # Create the secrets yaml using data (base64 encoded) instead of stringData
     cat > "$TEMP_SECRETS" <<EOF
 apiVersion: v1
 kind: Secret
 metadata:
   name: coinbase-secrets
+  namespace: ${NAMESPACE}
 type: Opaque
-stringData:
-  COINBASE_API_KEY: "${API_KEY}"
-  COINBASE_API_SECRET: |
-$(echo "$API_SECRET" | sed 's/^/    /')
+data:
+  COINBASE_API_KEY: "${API_KEY_B64}"
+  COINBASE_API_SECRET: "${API_SECRET_B64}"
+  LOG_LEVEL: $(echo -n "INFO" | base64 -w 0)
+  METRICS_PORT: $(echo -n "8000" | base64 -w 0)
+  PRODUCT_IDS: $(echo -n '["BTC-USD","ETH-USD"]' | base64 -w 0)
+  CHANNELS: $(echo -n '["candles","heartbeats"]' | base64 -w 0)
+  WS_TIMEOUT: $(echo -n "30" | base64 -w 0)
+  WS_MAX_SIZE: $(echo -n "1048576" | base64 -w 0)
+  RECONNECT_DELAY: $(echo -n "20" | base64 -w 0)
+  ENABLE_HEARTBEAT: $(echo -n "true" | base64 -w 0)
+  ENABLE_DEBUG_METRICS: $(echo -n "false" | base64 -w 0)
+  KAFKA_ENABLED: $(echo -n "false" | base64 -w 0)
+  KAFKA_BOOTSTRAP_SERVERS: $(echo -n "trading-cluster-kafka-bootstrap.kafka:9092" | base64 -w 0)
+  KAFKA_TOPIC: $(echo -n "coinbase.candles" | base64 -w 0)
 EOF
 
     # Apply the secrets
@@ -192,10 +208,28 @@ EOF
         exit 1
     fi
     
+    # Verify the secret was created and contains the credentials
+    echo "Verifying secret creation..."
+    if ! kubectl get secret coinbase-secrets -n "$NAMESPACE" -o json | jq -r '.data."COINBASE_API_KEY"' | base64 -d | grep -q "^organizations/"; then
+        echo -e "${RED}Error: API key not properly set in secret${NC}"
+        rm "$TEMP_SECRETS"
+        exit 1
+    fi
+    
+    if ! kubectl get secret coinbase-secrets -n "$NAMESPACE" -o json | jq -r '.data."COINBASE_API_SECRET"' | base64 -d | grep -q "BEGIN EC PRIVATE KEY"; then
+        echo -e "${RED}Error: API secret not properly set in secret${NC}"
+        rm "$TEMP_SECRETS"
+        exit 1
+    fi
+    
     # Clean up
     rm "$TEMP_SECRETS"
     
     echo -e "${GREEN}Secrets configured successfully${NC}"
+    
+    # Display a sample verification command
+    echo -e "${YELLOW}To verify the secret, run:${NC}"
+    echo "kubectl get secret coinbase-secrets -n $NAMESPACE -o json | jq -r '.data.\"COINBASE_API_KEY\"' | base64 -d"
 }
 
 verify_kafka() {
