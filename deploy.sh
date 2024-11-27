@@ -161,11 +161,11 @@ build_env_file() {
     # Clean the API key (simple alphanumeric cleaning)
     COINBASE_API_KEY=$(echo "$RAW_API_KEY" | tr -d '[:space:]"' | tr -d '\n')
     
-    # Special handling for API secret (preserve \n in EC private key)
-    # First, normalize newlines to actual newlines
-    NORMALIZED_SECRET=$(echo "$RAW_API_SECRET" | sed 's/\\n/\n/g')
-    # Then, convert actual newlines back to \n for yaml
-    COINBASE_API_SECRET=$(echo "$NORMALIZED_SECRET" | awk '{printf "%s\\n", $0}' | sed 's/\\n$//')
+    # Handle the EC private key format properly
+    # First, clean any extra spaces or quotes
+    CLEANED_SECRET=$(echo "$RAW_API_SECRET" | tr -d '"')
+    # Ensure proper newline handling
+    COINBASE_API_SECRET=$(echo "$CLEANED_SECRET" | sed 's/\\n/\n/g')
     
     # Verify API key format
     if [[ ! $COINBASE_API_KEY =~ ^[A-Za-z0-9+/=]+$ ]]; then
@@ -175,17 +175,24 @@ build_env_file() {
     fi
     
     # Verify API secret format
-    if ! echo "$NORMALIZED_SECRET" | grep -q "^-----BEGIN EC PRIVATE KEY-----" || \
-       ! echo "$NORMALIZED_SECRET" | grep -q "-----END EC PRIVATE KEY-----$"; then
+    if ! echo "$COINBASE_API_SECRET" | grep -q "^-----BEGIN EC PRIVATE KEY-----" || \
+       ! echo "$COINBASE_API_SECRET" | grep -q "-----END EC PRIVATE KEY-----$"; then
         echo -e "${RED}Error: API secret does not appear to be a valid EC private key${NC}"
         exit 1
     fi
     
     # Update the secrets with the cleaned values
-    yq e ".stringData.COINBASE_API_KEY = \"$COINBASE_API_KEY\"" -i k8s/base/secrets.yaml
-    yq e ".stringData.COINBASE_API_SECRET = \"$COINBASE_API_SECRET\"" -i k8s/base/secrets.yaml
+    yq eval-all ".stringData.COINBASE_API_KEY = \"$COINBASE_API_KEY\"" -i k8s/base/secrets.yaml
+    yq eval-all ".stringData.COINBASE_API_SECRET = \"${COINBASE_API_SECRET}\"" -i k8s/base/secrets.yaml
     
     echo -e "${GREEN}Secrets file created${NC}"
+    
+    # Verify the secret format before applying
+    echo -e "${YELLOW}Verifying secret format...${NC}"
+    if ! yq eval '.stringData.COINBASE_API_SECRET' k8s/base/secrets.yaml | grep -q "BEGIN EC PRIVATE KEY"; then
+        echo -e "${RED}Error: Secret format verification failed${NC}"
+        exit 1
+    fi
     
     # Apply the secrets directly
     kubectl apply -f k8s/base/secrets.yaml -n $NAMESPACE
