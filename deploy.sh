@@ -31,14 +31,14 @@ verify_prerequisites() {
     if ! kubectl get namespace $NAMESPACE >/dev/null 2>&1; then
         echo -e "${RED}Error: Namespace '$NAMESPACE' does not exist${NC}"
         exit 1
-    }
+    fi
     
     # Check if secret exists and has required fields
     if ! kubectl get secret coinbase-secrets -n $NAMESPACE >/dev/null 2>&1; then
         echo -e "${RED}Error: Secret 'coinbase-secrets' not found in namespace '$NAMESPACE'${NC}"
         echo "Please create the secret manually before deploying"
         exit 1
-    }
+    fi
     
     # Verify secret has required fields
     local required_fields=("COINBASE_API_KEY" "COINBASE_API_SECRET")
