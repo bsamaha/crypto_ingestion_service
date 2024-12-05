@@ -68,6 +68,15 @@ deploy_app() {
     sed -i "s|newName: .*|newName: ${REGISTRY_HOST}:${REGISTRY_PORT}/${IMAGE_NAME}|" k8s/base/kustomization.yaml
     sed -i "s|newTag: .*|newTag: ${IMAGE_TAG}|" k8s/base/kustomization.yaml
     
+    # Apply secrets first
+    if [ -f k8s/base/secrets.yaml ]; then
+        echo "Applying secrets..."
+        kubectl apply -f k8s/base/secrets.yaml -n $NAMESPACE
+    else
+        echo -e "${RED}Error: secrets.yaml not found in k8s/base/${NC}"
+        exit 1
+    fi
+    
     # Apply kustomization using kubectl
     if ! kubectl apply -k k8s/base -n $NAMESPACE; then
         echo -e "${RED}Failed to apply kustomization${NC}"

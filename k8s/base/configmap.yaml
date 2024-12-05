@@ -15,10 +15,10 @@ data:
   ENABLE_DEBUG_METRICS: "false"
   
   # Trading configuration
-  PRODUCT_IDS: '["BTC-USD","ETH-USD"]'
+  PRODUCT_IDS: '["BTC-USD","ETH-USD","SOL-USD","DOGE-USD","XRP-USD"]'
   CHANNELS: '["candles","heartbeats"]'
   
   # Kafka configuration
-  KAFKA_ENABLED: "false"
+  KAFKA_ENABLED: "true"
   KAFKA_BOOTSTRAP_SERVERS: "trading-cluster-kafka-bootstrap.kafka:9092"
   KAFKA_TOPIC: "coinbase.candles"
