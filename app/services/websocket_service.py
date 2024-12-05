@@ -97,10 +97,11 @@ class WebsocketService:
                                     
                                     asyncio.create_task(self.kafka_producer.send_message(self.config.KAFKA_TOPIC, kafka_message))
                                 
-                                metrics.record_message(
-                                    symbol=candle['product_id'],
-                                    processing_time=time.time() - start_time
-                                )
+                                if event['type'] == 'update':
+                                    metrics.record_message(
+                                        symbol=candle['product_id'],
+                                        processing_time=time.time() - start_time
+                                    )
                     
         except json.JSONDecodeError as e:
             metrics.connection_errors.inc()

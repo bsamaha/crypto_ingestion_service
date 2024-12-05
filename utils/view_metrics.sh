@@ -1,8 +1,25 @@
 #!/bin/bash
 set -e  # Exit on any error
 
+# Default values
+NAMESPACE="trading"
 PORT=8000
-METRICS_ENDPOINT="http://localhost:$PORT/metrics"
+POD_LABEL="app=coinbase-ws"  # Actual label from kubectl describe
+LOCAL_PORT=8001  # Local port to forward to
+
+# Function to get pod name
+get_pod_name() {
+    kubectl get pods -n "$NAMESPACE" -l "$POD_LABEL" -o jsonpath='{.items[0].metadata.name}'
+}
+
+# Function to cleanup port-forward
+cleanup() {
+    echo "Cleaning up port-forward..."
+    kill $PORT_FORWARD_PID 2>/dev/null || true
+}
+
+# Set up cleanup trap
+trap cleanup EXIT
 
 # Function to format timestamp to human readable date
 format_timestamp() {
@@ -39,7 +56,7 @@ format_metrics() {
                     ;;
                 "websocket_last_message_timestamp_seconds")
                     human_time=$(format_timestamp "$metric_value")
-                    echo "📅 Last Message: $human_time"
+                    echo " Last Message: $human_time"
                     ;;
                 "websocket_messages_by_symbol_total")
                     if [[ $metric_labels =~ symbol=\"([^\"]+)\" ]]; then
@@ -66,27 +83,43 @@ format_metrics() {
             echo "   $symbol: ${symbol_counts[$symbol]}"
         done
     fi
-
-    echo ""
-    echo "🔍 Raw Metric Values:"
-    curl -s "$METRICS_ENDPOINT" | grep -v "^#" | sort
 }
 
-echo "🔍 Fetching metrics from $METRICS_ENDPOINT..."
+POD_NAME=$(get_pod_name)
+if [ -z "$POD_NAME" ]; then
+    echo "❌ No pod found with label $POD_LABEL in namespace $NAMESPACE"
+    exit 1
+fi
+
+echo "🔍 Setting up port-forward to pod $POD_NAME..."
+kubectl port-forward -n "$NAMESPACE" "$POD_NAME" "$LOCAL_PORT:$PORT" &
+PORT_FORWARD_PID=$!
+
+# Wait for port-forward to be ready
+sleep 2
+
 echo "----------------------------------------"
 
-if ! curl -s "$METRICS_ENDPOINT" | format_metrics; then
+# Show raw metrics first
+echo "🔍 Raw Metrics:"
+curl -s "http://localhost:$LOCAL_PORT/metrics"
+echo ""
+echo "----------------------------------------"
+echo "📊 Formatted Metrics:"
+
+# Get metrics using local port-forward
+if ! curl -s "http://localhost:$LOCAL_PORT/metrics" | format_metrics; then
     echo "❌ Failed to fetch metrics!"
     exit 1
 fi
 
 echo "----------------------------------------"
 
-# Show service health status
-HEALTH_STATUS=$(curl -s "http://localhost:$PORT/health")
-echo "💓 Service Health: $HEALTH_STATUS"
+# Show pod health status
+HEALTH_STATUS=$(curl -s "http://localhost:$LOCAL_PORT/health")
+echo "💓 Pod Health: $HEALTH_STATUS"
 
-# Show container stats
+# Show pod resource usage
 echo ""
-echo "📈 Container Stats:"
-docker stats coinbase-ws --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}" 
+echo "📈 Pod Stats:"
+kubectl top pod "$POD_NAME" -n "$NAMESPACE"
